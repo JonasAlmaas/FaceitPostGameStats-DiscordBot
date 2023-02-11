@@ -12,7 +12,10 @@ from bot import DiscordBot
 
 faceit_api = FaceitAPI(FACEIT_API_KEY, FACEIT_PLAYER_ID, NUMBERS_OF_MATCHES)
 
-api = FastAPI()
+api = FastAPI(
+    title='Faceit Stats Discord Bot',
+    version='1.0.0',
+)
 
 
 @api.get("/")

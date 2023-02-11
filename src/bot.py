@@ -35,10 +35,6 @@ class DiscordBot:
         self.bot.event(coro)
 
     async def post_discord_message(self):
-        faceit_match_history = self.faceit_api.get_player_history()
-        if faceit_match_history is None:
-            return
-
         faceit_player_details = self.faceit_api.get_player_info()
         if faceit_player_details is None:
             return
@@ -47,86 +43,56 @@ class DiscordBot:
         if not isinstance(channel, TextChannel):
             return
 
-        await channel.purge(limit=500)
+        embed = Embed(
+            title=f'{faceit_player_details["nickname"]} just finished a match on FACEIT',
+            color=0xff5500,
+        )
+        embed.set_thumbnail(url=faceit_player_details['avatar'])
+        embed.add_field(name='ELO', value=faceit_player_details["games"]["csgo"]["faceit_elo"], inline=True)
+        await channel.send(embed=embed)
 
-        for match in reversed(faceit_match_history['items']):
-            if match['game_id'] != 'csgo':
-                continue
+        faceit_match_history = self.faceit_api.get_player_history()
+        if faceit_match_history is None:
+            return
 
-            match_stats = self.faceit_api.get_match_stats(match['match_id'])
-            if match_stats is None:
-                continue
-
-            round = match_stats['rounds'][0]
-            found_player = False
-            for team in round['teams']:
-                if found_player:
-                    break
-
-                for player in team['players']:
-                    if player['player_id'] != self.player_faceit_id:
-                        continue
-
-                    embed = Embed(
-                        title=f'{faceit_player_details["nickname"]}\'s Faceit stats',
-                        color=0xff0000,
-                    )
-
-                    embed.set_thumbnail(url=faceit_player_details['avatar'])
-                    embed.set_footer(text='For more information visit fuckamirz.co.uk')
-
-                    embed.add_field(
-                        name=f'{round["round_stats"]["Map"]} - {round["round_stats"]["Score"]}',
-                        value='',
-                        inline=False,
-                    )
-
-                    if team['team_id'] == round["round_stats"]["Winner"]:
-                        embed.color = 0x00ff00
-
-                    kills = player['player_stats']['Kills']
-                    assists = player['player_stats']['Assists']
-                    deaths = player['player_stats']['Deaths']
-                    mvps = player['player_stats']['MVPs']
-                    kd = player['player_stats']['K/D Ratio']
-                    headshots = player['player_stats']['Headshots']
-                    headshot_percentage = player['player_stats']['Headshots %']
-
-                    embed.add_field(name=f'Kills', value=f'{kills}', inline=True)
-                    embed.add_field(name=f'Assists', value=f'{assists}', inline=True)
-                    embed.add_field(name=f'Deaths', value=f'{deaths}', inline=True)
-                    embed.add_field(name=f'MVPs', value=f'{mvps}', inline=True)
-                    embed.add_field(name=f'K/D Ratio', value=f'{kd}', inline=True)
-                    embed.add_field(name=f'Headshots', value=f'{headshots}', inline=True)
-                    embed.add_field(name=f'Headshots %', value=f'{headshot_percentage}', inline=True)
-
-                    await channel.send(embed=embed)
-
-                    found_player = True
-                    break
-
-            print('Loading...')
-
+        # Scoreboard for last match
         last_match = faceit_match_history['items'][0]
         if last_match['game_id'] == 'csgo':
             match_stats = self.faceit_api.get_match_stats(last_match['match_id'])
             if match_stats is not None:
 
-                round = match_stats['rounds'][0]
-                for team in round['teams']:
+                _round = match_stats['rounds'][0]
+                for team in _round['teams']:
+                    scoreboard = []
+
+                    for player in team['players']:
+                        scoreboard.append({
+                            'nickname': player['nickname'],
+                            'Kills': int(player['player_stats']['Kills']),
+                            'Assists': int(player['player_stats']['Assists']),
+                            'Deaths': int(player['player_stats']['Deaths']),
+                            'MVPs': int(player['player_stats']['MVPs']),
+                            'Headshots': int(player['player_stats']['Headshots']),
+                            'Headshots %': int(player['player_stats']['Headshots %']),
+                            'K/D Ratio': float(player['player_stats']['K/D Ratio']),
+                        })
+
+                    # Sort by kills
+                    sorted_scoreboard = sorted(scoreboard, key=lambda x: (x['Kills'], x['Assists']), reverse=True)
+
                     table = PrettyTable()
                     table.field_names = ['', 'K', 'A', 'D', 'MVP', 'HS', 'HS%', 'K/D']
 
-                    for player in team['players']:
+                    for player in sorted_scoreboard:
                         table.add_row([
                             player['nickname'],
-                            player['player_stats']['Kills'],
-                            player['player_stats']['Assists'],
-                            player['player_stats']['Deaths'],
-                            player['player_stats']['MVPs'],
-                            player['player_stats']['Headshots'],
-                            player['player_stats']['Headshots %'],
-                            player['player_stats']['K/D Ratio'],
+                            player['Kills'],
+                            player['Assists'],
+                            player['Deaths'],
+                            player['MVPs'],
+                            player['Headshots'],
+                            player['Headshots %'],
+                            player['K/D Ratio'],
                         ])
 
                     embed = Embed(
@@ -134,14 +100,52 @@ class DiscordBot:
                         color=0xff0000,
                     )
 
-                    if team['team_id'] == round["round_stats"]["Winner"]:
+                    if team['team_id'] == _round["round_stats"]["Winner"]:
                         embed.color = 0x00ff00
 
                     await channel.send(embed=embed)
 
+        total_kills = 0
+        total_headshot_perc = 0
+        total_kd = 0
+        total_kr = 0
+
+        # Last 20 match stats
+        for match in faceit_match_history['items']:
+            print(f'Getting stats for mathc with id {match["match_id"]}')
+            match_stats = self.faceit_api.get_match_stats(match['match_id'])
+            if match_stats is not None:
+                _round = match_stats['rounds'][0]
+                for team in _round['teams']:
+                    found_player = False
+
+                    for player in team['players']:
+                        if player['player_id'] == self.player_faceit_id:
+                            found_player = True
+                            total_kills += int(player['player_stats']['Kills'])
+                            total_headshot_perc += int(player['player_stats']['Headshots %'])
+                            total_kd += float(player['player_stats']['K/D Ratio'])
+                            total_kr += float(player['player_stats']['K/R Ratio'])
+                            break
+
+                    if found_player:
+                        break
+
+        match_count = len(faceit_match_history['items'])
+
+        stats_avrage_kills = round(total_kills / match_count)
+        stats_avrage_headshot_perc = round(total_headshot_perc / match_count)
+        stats_avrage_kd = round(total_kd / match_count, 1)
+        stats_avrage_kr = round(total_kr / match_count, 1)
+
         embed = Embed(
-            title=
-            f'{faceit_player_details["nickname"]}\'s current elo is {faceit_player_details["games"]["csgo"]["faceit_elo"]}',
-            color=0xff00ff,
+            title='LAST 20 MATCHES STATISTICS',
+            color=0xff5500,
         )
+
+        embed.add_field(name='Avrage Kills', value=stats_avrage_kills, inline=True)
+        embed.add_field(name='Avrage Headshot %', value=stats_avrage_headshot_perc, inline=True)
+        embed.add_field(name='Avrage K/D', value=stats_avrage_kd, inline=True)
+        embed.add_field(name='Avrage K/R', value=stats_avrage_kr, inline=True)
+
         await channel.send(embed=embed)
