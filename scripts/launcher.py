@@ -7,7 +7,7 @@ if __name__ == '__main__':
     env = os.environ.copy()
     env['FACEIT_API_KEY'] = ''
     env['FACEIT_PLAYER_ID'] = ''
-    env['NUMBERS_OF_MATCHES'] = '10'
+    env['NUMBERS_OF_MATCHES'] = '20'
     env['BOT_TOKEN'] = ''
     env['BOT_CHANNEL_ID'] = ''
 
